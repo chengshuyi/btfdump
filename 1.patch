@@ -1,0 +1,75 @@
+From bc77c9b1122f31f795ed9be761a220d7e4d82c61 Mon Sep 17 00:00:00 2001
+From: Shuyi Cheng <chengshuyi@linux.alibaba.com>
+Date: Fri, 28 Oct 2022 14:09:59 +0800
+Subject: [PATCH] support locate instruction to source coed
+---
+ src/main.rs | 47 +++++++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 47 insertions(+)
+
+diff --git a/src/main.rs b/src/main.rs
+index bccd1a5..c0bf1cc 100644
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -159,6 +159,17 @@ enum Cmd {
+         #[structopt(parse(from_os_str))]
+         file: std::path::PathBuf,
+     },
++    #[structopt(name = "locate")]
++    /// Locate instruction  
++    Locate {
++        #[structopt(parse(from_os_str))]
++        file: std::path::PathBuf,
++        #[structopt(short = "n", long = "name")]
++        name: String,
++        #[structopt(short = "i", long = "insn")]
++        /// instruction offset
++        insn: usize,
++    },
+ }
+ 
+ fn main() -> Result<(), Box<dyn Error>> {
+@@ -263,6 +274,42 @@ fn main() -> Result<(), Box<dyn Error>> {
+             let file = object::ElfFile::parse(&*file)?;
+             stat_btf(&file)?;
+         }
++
++        Cmd::Locate { file, name, insn } => {
++            let file = std::fs::File::open(&file)?;
++            let file = unsafe { memmap::Mmap::map(&file) }?;
++            let file = object::ElfFile::parse(&*file)?;
++            let local_btf = Btf::load(&file)?;
++
++            if !local_btf.has_ext() {
++                return btf_error(format!(
++                    "No {} section found for local ELF file, can't perform locate.",
++                    BTF_EXT_ELF_SEC
++                ));
++            }
++
++            for sec in local_btf.line_secs() {
++                let mut fl = None;
++
++                if sec.name.contains(&name) {
++                    println!("Found target bpf program: {} for {}", sec.name, name);
++                    for l in &sec.recs {
++                        if l.insn_off/8 > insn as u32 {
++                            break;
++                        }
++                        fl = Some(l);
++                    }
++
++                    if let Some(l) = fl {
++                        println!(
++                            "\t Instruction: {} locate at {}:{}:{} , Code: {}",
++                            insn, l.file_name, l.line_num, l.col_num, l.src_line
++                        );
++                    }
++                }
++
++            }
++        }
+     }
+     Ok(())
+ }
+-- 
+2.27.0
